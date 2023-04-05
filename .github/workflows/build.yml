@@ -1,1 +1,21 @@
+name: "Build Kubernetes"
 
+# Événements sur lesquels il doit être déclenché
+on:
+  workflow_dispatch: # <- Manuellement
+  push:         # <- Déclenché lorsque l'on pousse du code...
+   branches:
+     - master  # <- ... mais seulement sur cette branche
+
+jobs:
+  build: # <- Nom du job
+    runs-on: ubuntu-latest
+    steps:
+      - name: "Checkout"
+        uses: actions/checkout@v3
+        with:
+          ref: main
+          persist-credentials: false
+      - name: "Build"
+      
+        
