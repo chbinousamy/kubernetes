@@ -25,5 +25,5 @@ jobs:
 
       - name: "Make Kubernetes"
         run: |
-          cd kubernetes
-          make
+          pwd
+          ls -l
