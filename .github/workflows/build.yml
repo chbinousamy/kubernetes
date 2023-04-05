@@ -19,6 +19,8 @@ jobs:
           persist-credentials: false
           
       - name: "Check Go version"
-        run: go version
+        run: |
+          go version
+          echo $GOPATH
       
         
