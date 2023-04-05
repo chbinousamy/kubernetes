@@ -24,6 +24,4 @@ jobs:
           persist-credentials: false
 
       - name: "Make Kubernetes"
-        run: |
-          pwd
-          ls -l
+        run: make
