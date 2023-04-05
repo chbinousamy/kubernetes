@@ -15,7 +15,7 @@ jobs:
       - name: "Checkout"
         uses: actions/checkout@v3
         with:
-          ref: main
+          ref: master
           persist-credentials: false
           
       - name: "Check Go version"
