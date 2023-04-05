@@ -12,15 +12,18 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     
+      - name: "Check Go version"
+        run: |
+          go version
+          which go
+          
       - name: "Checkout"
         uses: actions/checkout@v3
         with:
           ref: master
           persist-credentials: false
-          
-      - name: "Check Go version"
+
+      - name: "Make Kubernetes"
         run: |
-          go version
-          echo $GOPATH
-      
-        
+          cd kubernetes
+          make
