@@ -26,6 +26,7 @@ import (
 	storagev1 "k8s.io/api/storage/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/klog/v2/ktesting"
 	"k8s.io/kubernetes/pkg/scheduler/apis/config"
 	"k8s.io/kubernetes/pkg/scheduler/framework"
 	fakeframework "k8s.io/kubernetes/pkg/scheduler/framework/fake"
@@ -228,11 +229,37 @@ func TestSingleZone(t *testing.T) {
 			},
 			wantFilterStatus: framework.NewStatus(framework.UnschedulableAndUnresolvable, ErrReasonConflict),
 		},
+		{
+			name: "pv with beta label,node with ga label, matched",
+			Pod:  createPodWithVolume("pod_1", "Vol_1", "PVC_1"),
+			Node: &v1.Node{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "host1",
+					Labels: map[string]string{
+						v1.LabelTopologyZone: "us-west1-a",
+					},
+				},
+			},
+		},
+		{
+			name: "pv with beta label,node with ga label, don't match",
+			Pod:  createPodWithVolume("pod_1", "vol_1", "PVC_1"),
+			Node: &v1.Node{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "host1",
+					Labels: map[string]string{
+						v1.LabelTopologyZone: "us-west1-b",
+					},
+				},
+			},
+			wantFilterStatus: framework.NewStatus(framework.UnschedulableAndUnresolvable, ErrReasonConflict),
+		},
 	}
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			ctx, cancel := context.WithCancel(context.Background())
+			_, ctx := ktesting.NewTestContext(t)
+			ctx, cancel := context.WithCancel(ctx)
 			defer cancel()
 
 			state := framework.NewCycleState()
@@ -363,7 +390,8 @@ func TestMultiZone(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			ctx, cancel := context.WithCancel(context.Background())
+			_, ctx := ktesting.NewTestContext(t)
+			ctx, cancel := context.WithCancel(ctx)
 			defer cancel()
 
 			state := framework.NewCycleState()
@@ -487,7 +515,8 @@ func TestWithBinding(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			ctx, cancel := context.WithCancel(context.Background())
+			_, ctx := ktesting.NewTestContext(t)
+			ctx, cancel := context.WithCancel(ctx)
 			defer cancel()
 
 			state := framework.NewCycleState()

@@ -23,6 +23,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/go-cmp/cmp"
 	coordinationv1 "k8s.io/api/coordination/v1"
 	corev1 "k8s.io/api/core/v1"
 	apiequality "k8s.io/apimachinery/pkg/api/equality"
@@ -31,7 +32,6 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/apimachinery/pkg/util/diff"
 	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/kubernetes/fake"
 	clienttesting "k8s.io/client-go/testing"
@@ -205,7 +205,7 @@ func TestNewNodeLease(t *testing.T) {
 				t.Fatalf("the new lease must be newly allocated, but got same address as base")
 			}
 			if !apiequality.Semantic.DeepEqual(tc.expect, newLease) {
-				t.Errorf("unexpected result from newLease: %s", diff.ObjectDiff(tc.expect, newLease))
+				t.Errorf("unexpected result from newLease: %s", cmp.Diff(tc.expect, newLease))
 			}
 		})
 	}
@@ -227,6 +227,7 @@ func TestRetryUpdateNodeLease(t *testing.T) {
 		getReactor                 func(action clienttesting.Action) (bool, runtime.Object, error)
 		onRepeatedHeartbeatFailure func()
 		expectErr                  bool
+		client                     *fake.Clientset
 	}{
 		{
 			desc: "no errors",
@@ -236,6 +237,7 @@ func TestRetryUpdateNodeLease(t *testing.T) {
 			getReactor:                 nil,
 			onRepeatedHeartbeatFailure: nil,
 			expectErr:                  false,
+			client:                     fake.NewSimpleClientset(node),
 		},
 		{
 			desc: "connection errors",
@@ -245,6 +247,7 @@ func TestRetryUpdateNodeLease(t *testing.T) {
 			getReactor:                 nil,
 			onRepeatedHeartbeatFailure: nil,
 			expectErr:                  true,
+			client:                     fake.NewSimpleClientset(node),
 		},
 		{
 			desc: "optimistic lock errors",
@@ -267,12 +270,24 @@ func TestRetryUpdateNodeLease(t *testing.T) {
 			},
 			onRepeatedHeartbeatFailure: func() { t.Fatalf("onRepeatedHeartbeatFailure called") },
 			expectErr:                  false,
+			client:                     fake.NewSimpleClientset(node),
+		},
+		{
+			desc: "node not found errors",
+			updateReactor: func(action clienttesting.Action) (bool, runtime.Object, error) {
+				t.Fatalf("lease was updated when node does not exist!")
+				return true, nil, nil
+			},
+			getReactor:                 nil,
+			onRepeatedHeartbeatFailure: nil,
+			expectErr:                  true,
+			client:                     fake.NewSimpleClientset(),
 		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.desc, func(t *testing.T) {
 			_, ctx := ktesting.NewTestContext(t)
-			cl := fake.NewSimpleClientset(node)
+			cl := tc.client
 			if tc.updateReactor != nil {
 				cl.PrependReactor("update", "leases", tc.updateReactor)
 			}

@@ -18,7 +18,6 @@ package testing
 
 import (
 	"fmt"
-	"k8s.io/klog/v2"
 	"os"
 	"path/filepath"
 	goruntime "runtime"
@@ -26,6 +25,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"k8s.io/klog/v2"
 
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/utils/exec"
@@ -95,6 +96,8 @@ const (
 	volumeNotMounted     = "volumeNotMounted"
 	volumeMountUncertain = "volumeMountUncertain"
 	volumeMounted        = "volumeMounted"
+
+	FailNewMounter = "fail-new-mounter"
 )
 
 // CommandScript is used to pre-configure a command that will be executed and
@@ -298,6 +301,9 @@ func (plugin *FakeVolumePlugin) SupportsSELinuxContextMount(spec *volume.Spec) (
 func (plugin *FakeVolumePlugin) NewMounter(spec *volume.Spec, pod *v1.Pod, opts volume.VolumeOptions) (volume.Mounter, error) {
 	plugin.Lock()
 	defer plugin.Unlock()
+	if spec.Name() == FailNewMounter {
+		return nil, fmt.Errorf("AlwaysFailNewMounter")
+	}
 	fakeVolume := plugin.getFakeVolume(&plugin.Mounters)
 	fakeVolume.Lock()
 	defer fakeVolume.Unlock()
@@ -1701,7 +1707,7 @@ func CreateTestPVC(capacity string, accessModes []v1.PersistentVolumeAccessMode)
 		},
 		Spec: v1.PersistentVolumeClaimSpec{
 			AccessModes: accessModes,
-			Resources: v1.ResourceRequirements{
+			Resources: v1.VolumeResourceRequirements{
 				Requests: v1.ResourceList{
 					v1.ResourceName(v1.ResourceStorage): resource.MustParse(capacity),
 				},

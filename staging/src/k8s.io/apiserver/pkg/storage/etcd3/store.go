@@ -32,19 +32,16 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime/schema"
-	"k8s.io/apimachinery/pkg/util/validation/field"
-
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/conversion"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/apimachinery/pkg/watch"
 	"k8s.io/apiserver/pkg/audit"
-	"k8s.io/apiserver/pkg/features"
 	"k8s.io/apiserver/pkg/storage"
 	"k8s.io/apiserver/pkg/storage/etcd3/metrics"
 	"k8s.io/apiserver/pkg/storage/value"
-	utilfeature "k8s.io/apiserver/pkg/util/feature"
 	"k8s.io/component-base/tracing"
 	"k8s.io/klog/v2"
 )
@@ -85,6 +82,12 @@ type store struct {
 	leaseManager        *leaseManager
 }
 
+func (s *store) RequestWatchProgress(ctx context.Context) error {
+	// Use watchContext to match ctx metadata provided when creating the watch.
+	// In best case scenario we would use the same context that watch was created, but there is no way access it from watchCache.
+	return s.client.RequestProgress(s.watchContext(ctx))
+}
+
 type objState struct {
 	obj   runtime.Object
 	meta  *storage.ResponseMeta
@@ -108,7 +111,22 @@ func newStore(c *clientv3.Client, codec runtime.Codec, newFunc func() runtime.Ob
 		// Ensure the pathPrefix ends in "/" here to simplify key concatenation later.
 		pathPrefix += "/"
 	}
-	result := &store{
+
+	w := &watcher{
+		client:        c,
+		codec:         codec,
+		groupResource: groupResource,
+		newFunc:       newFunc,
+		versioner:     versioner,
+		transformer:   transformer,
+	}
+	if newFunc == nil {
+		w.objectType = "<unknown>"
+	} else {
+		w.objectType = reflect.TypeOf(newFunc()).String()
+	}
+
+	s := &store{
 		client:              c,
 		codec:               codec,
 		versioner:           versioner,
@@ -117,10 +135,10 @@ func newStore(c *clientv3.Client, codec runtime.Codec, newFunc func() runtime.Ob
 		pathPrefix:          pathPrefix,
 		groupResource:       groupResource,
 		groupResourceString: groupResource.String(),
-		watcher:             newWatcher(c, codec, groupResource, newFunc, versioner),
+		watcher:             w,
 		leaseManager:        newDefaultLeaseManager(c, leaseManagerConfig),
 	}
-	return result
+	return s
 }
 
 // Versioner implements storage.Interface.Versioner.
@@ -136,7 +154,7 @@ func (s *store) Get(ctx context.Context, key string, opts storage.GetOptions, ou
 	}
 	startTime := time.Now()
 	getResp, err := s.client.KV.Get(ctx, preparedKey)
-	metrics.RecordEtcdRequestLatency("get", s.groupResourceString, startTime)
+	metrics.RecordEtcdRequest("get", s.groupResourceString, err, startTime)
 	if err != nil {
 		return err
 	}
@@ -210,7 +228,7 @@ func (s *store) Create(ctx context.Context, key string, obj, out runtime.Object,
 	).Then(
 		clientv3.OpPut(preparedKey, string(newData), opts...),
 	).Commit()
-	metrics.RecordEtcdRequestLatency("create", s.groupResourceString, startTime)
+	metrics.RecordEtcdRequest("create", s.groupResourceString, err, startTime)
 	if err != nil {
 		span.AddEvent("Txn call failed", attribute.String("err", err.Error()))
 		return err
@@ -255,7 +273,7 @@ func (s *store) conditionalDelete(
 	getCurrentState := func() (*objState, error) {
 		startTime := time.Now()
 		getResp, err := s.client.KV.Get(ctx, key)
-		metrics.RecordEtcdRequestLatency("get", s.groupResourceString, startTime)
+		metrics.RecordEtcdRequest("get", s.groupResourceString, err, startTime)
 		if err != nil {
 			return nil, err
 		}
@@ -337,7 +355,7 @@ func (s *store) conditionalDelete(
 		).Else(
 			clientv3.OpGet(key),
 		).Commit()
-		metrics.RecordEtcdRequestLatency("delete", s.groupResourceString, startTime)
+		metrics.RecordEtcdRequest("delete", s.groupResourceString, err, startTime)
 		if err != nil {
 			return err
 		}
@@ -391,7 +409,7 @@ func (s *store) GuaranteedUpdate(
 	getCurrentState := func() (*objState, error) {
 		startTime := time.Now()
 		getResp, err := s.client.KV.Get(ctx, preparedKey)
-		metrics.RecordEtcdRequestLatency("get", s.groupResourceString, startTime)
+		metrics.RecordEtcdRequest("get", s.groupResourceString, err, startTime)
 		if err != nil {
 			return nil, err
 		}
@@ -512,7 +530,7 @@ func (s *store) GuaranteedUpdate(
 		).Else(
 			clientv3.OpGet(preparedKey),
 		).Commit()
-		metrics.RecordEtcdRequestLatency("update", s.groupResourceString, startTime)
+		metrics.RecordEtcdRequest("update", s.groupResourceString, err, startTime)
 		if err != nil {
 			span.AddEvent("Txn call failed", attribute.String("err", err.Error()))
 			return err
@@ -575,7 +593,7 @@ func (s *store) Count(key string) (int64, error) {
 
 	startTime := time.Now()
 	getResp, err := s.client.KV.Get(context.Background(), preparedKey, clientv3.WithRange(clientv3.GetPrefixRangeEnd(preparedKey)), clientv3.WithCountOnly())
-	metrics.RecordEtcdRequestLatency("listWithCount", preparedKey, startTime)
+	metrics.RecordEtcdRequest("listWithCount", preparedKey, err, startTime)
 	if err != nil {
 		return 0, err
 	}
@@ -720,14 +738,16 @@ func (s *store) GetList(ctx context.Context, key string, opts storage.ListOption
 		numReturn := v.Len()
 		metrics.RecordStorageListMetrics(s.groupResourceString, numFetched, numEvald, numReturn)
 	}()
+
+	metricsOp := "get"
+	if recursive {
+		metricsOp = "list"
+	}
+
 	for {
 		startTime := time.Now()
 		getResp, err = s.client.KV.Get(ctx, preparedKey, options...)
-		if recursive {
-			metrics.RecordEtcdRequestLatency("list", s.groupResourceString, startTime)
-		} else {
-			metrics.RecordEtcdRequestLatency("get", s.groupResourceString, startTime)
-		}
+		metrics.RecordEtcdRequest(metricsOp, s.groupResourceString, err, startTime)
 		if err != nil {
 			return interpretListError(err, len(pred.Continue) > 0, continueKey, keyPrefix)
 		}
@@ -818,11 +838,9 @@ func (s *store) GetList(ctx context.Context, key string, opts storage.ListOption
 		// getResp.Count counts in objects that do not match the pred.
 		// Instead of returning inaccurate count for non-empty selectors, we return nil.
 		// Only set remainingItemCount if the predicate is empty.
-		if utilfeature.DefaultFeatureGate.Enabled(features.RemainingItemCount) {
-			if pred.Empty() {
-				c := int64(getResp.Count - pred.Limit)
-				remainingItemCount = &c
-			}
+		if pred.Empty() {
+			c := int64(getResp.Count - pred.Limit)
+			remainingItemCount = &c
 		}
 		return s.versioner.UpdateList(listObj, uint64(returnedRV), next, remainingItemCount)
 	}
@@ -863,8 +881,12 @@ func growSlice(v reflect.Value, maxCapacity int, sizes ...int) {
 }
 
 // Watch implements storage.Interface.Watch.
+// TODO(#115478): In order to graduate the WatchList feature to beta, the etcd3 implementation must/should also support it.
 func (s *store) Watch(ctx context.Context, key string, opts storage.ListOptions) (watch.Interface, error) {
-	if opts.SendInitialEvents != nil {
+	// it is safe to skip SendInitialEvents if the request is backward compatible
+	// see https://github.com/kubernetes/kubernetes/blob/267eb25e60955fe8e438c6311412e7cf7d028acb/staging/src/k8s.io/apiserver/pkg/storage/etcd3/watcher.go#L260
+	compatibility := opts.Predicate.AllowWatchBookmarks == false && (opts.ResourceVersion == "" || opts.ResourceVersion == "0")
+	if opts.SendInitialEvents != nil && !compatibility {
 		return nil, apierrors.NewInvalid(
 			schema.GroupKind{Group: s.groupResource.Group, Kind: s.groupResource.Resource},
 			"",
@@ -879,7 +901,18 @@ func (s *store) Watch(ctx context.Context, key string, opts storage.ListOptions)
 	if err != nil {
 		return nil, err
 	}
-	return s.watcher.Watch(ctx, preparedKey, int64(rev), opts.Recursive, opts.ProgressNotify, s.transformer, opts.Predicate)
+	return s.watcher.Watch(s.watchContext(ctx), preparedKey, int64(rev), opts)
+}
+
+func (s *store) watchContext(ctx context.Context) context.Context {
+	// The etcd server waits until it cannot find a leader for 3 election
+	// timeouts to cancel existing streams. 3 is currently a hard coded
+	// constant. The election timeout defaults to 1000ms. If the cluster is
+	// healthy, when the leader is stopped, the leadership transfer should be
+	// smooth. (leader transfers its leadership before stopping). If leader is
+	// hard killed, other servers will take an election timeout to realize
+	// leader lost and start campaign.
+	return clientv3.WithRequireLeader(ctx)
 }
 
 func (s *store) getState(ctx context.Context, getResp *clientv3.GetResponse, key string, v reflect.Value, ignoreNotFound bool) (*objState, error) {

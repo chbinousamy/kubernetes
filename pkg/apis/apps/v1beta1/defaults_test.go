@@ -39,7 +39,7 @@ import (
 
 func TestSetDefaultDeployment(t *testing.T) {
 	defaultIntOrString := intstr.FromString("25%")
-	differentIntOrString := intstr.FromInt(5)
+	differentIntOrString := intstr.FromInt32(5)
 	period := int64(v1.DefaultTerminationGracePeriodSeconds)
 	defaultTemplate := v1.PodTemplateSpec{
 		Spec: v1.PodSpec{
@@ -532,6 +532,6 @@ func getPartition(partition int32) *int32 {
 }
 
 func getMaxUnavailable(maxUnavailable int) *intstr.IntOrString {
-	maxUnavailableIntOrStr := intstr.FromInt(maxUnavailable)
+	maxUnavailableIntOrStr := intstr.FromInt32(int32(maxUnavailable))
 	return &maxUnavailableIntOrStr
 }

@@ -48,7 +48,7 @@ func TestDaemonSetUpdatesPods(t *testing.T) {
 
 	ds.Spec.Template.Spec.Containers[0].Image = "foo2/bar2"
 	ds.Spec.UpdateStrategy.Type = apps.RollingUpdateDaemonSetStrategyType
-	intStr := intstr.FromInt(maxUnavailable)
+	intStr := intstr.FromInt32(int32(maxUnavailable))
 	ds.Spec.UpdateStrategy.RollingUpdate = &apps.RollingUpdateDaemonSet{MaxUnavailable: &intStr}
 	manager.dsStore.Update(ds)
 
@@ -90,7 +90,7 @@ func TestDaemonSetUpdatesPodsWithMaxSurge(t *testing.T) {
 	// surge is thhe controlling amount
 	maxSurge := 2
 	ds.Spec.Template.Spec.Containers[0].Image = "foo2/bar2"
-	ds.Spec.UpdateStrategy = newUpdateSurge(intstr.FromInt(maxSurge))
+	ds.Spec.UpdateStrategy = newUpdateSurge(intstr.FromInt32(int32(maxSurge)))
 	manager.dsStore.Update(ds)
 
 	clearExpectations(t, manager, ds, podControl)
@@ -135,7 +135,7 @@ func TestDaemonSetUpdatesWhenNewPosIsNotReady(t *testing.T) {
 
 	ds.Spec.Template.Spec.Containers[0].Image = "foo2/bar2"
 	ds.Spec.UpdateStrategy.Type = apps.RollingUpdateDaemonSetStrategyType
-	intStr := intstr.FromInt(maxUnavailable)
+	intStr := intstr.FromInt32(int32(maxUnavailable))
 	ds.Spec.UpdateStrategy.RollingUpdate = &apps.RollingUpdateDaemonSet{MaxUnavailable: &intStr}
 	err = manager.dsStore.Update(ds)
 	if err != nil {
@@ -171,7 +171,7 @@ func TestDaemonSetUpdatesAllOldPodsNotReady(t *testing.T) {
 
 	ds.Spec.Template.Spec.Containers[0].Image = "foo2/bar2"
 	ds.Spec.UpdateStrategy.Type = apps.RollingUpdateDaemonSetStrategyType
-	intStr := intstr.FromInt(maxUnavailable)
+	intStr := intstr.FromInt32(int32(maxUnavailable))
 	ds.Spec.UpdateStrategy.RollingUpdate = &apps.RollingUpdateDaemonSet{MaxUnavailable: &intStr}
 	err = manager.dsStore.Update(ds)
 	if err != nil {
@@ -203,7 +203,7 @@ func TestDaemonSetUpdatesAllOldPodsNotReadyMaxSurge(t *testing.T) {
 
 	maxSurge := 3
 	ds.Spec.Template.Spec.Containers[0].Image = "foo2/bar2"
-	ds.Spec.UpdateStrategy = newUpdateSurge(intstr.FromInt(maxSurge))
+	ds.Spec.UpdateStrategy = newUpdateSurge(intstr.FromInt32(int32(maxSurge)))
 	manager.dsStore.Update(ds)
 
 	// all old pods are unavailable so should be surged
@@ -347,7 +347,7 @@ func TestDaemonSetUpdatesNoTemplateChanged(t *testing.T) {
 	expectSyncDaemonSets(t, manager, ds, podControl, 5, 0, 0)
 
 	ds.Spec.UpdateStrategy.Type = apps.RollingUpdateDaemonSetStrategyType
-	intStr := intstr.FromInt(maxUnavailable)
+	intStr := intstr.FromInt32(int32(maxUnavailable))
 	ds.Spec.UpdateStrategy.RollingUpdate = &apps.RollingUpdateDaemonSet{MaxUnavailable: &intStr}
 	manager.dsStore.Update(ds)
 
@@ -358,7 +358,7 @@ func TestDaemonSetUpdatesNoTemplateChanged(t *testing.T) {
 }
 
 func newUpdateSurge(value intstr.IntOrString) apps.DaemonSetUpdateStrategy {
-	zero := intstr.FromInt(0)
+	zero := intstr.FromInt32(0)
 	return apps.DaemonSetUpdateStrategy{
 		Type: apps.RollingUpdateDaemonSetStrategyType,
 		RollingUpdate: &apps.RollingUpdateDaemonSet{
@@ -399,7 +399,7 @@ func TestGetUnavailableNumbers(t *testing.T) {
 			},
 			ds: func() *apps.DaemonSet {
 				ds := newDaemonSet("x")
-				ds.Spec.UpdateStrategy = newUpdateUnavailable(intstr.FromInt(0))
+				ds.Spec.UpdateStrategy = newUpdateUnavailable(intstr.FromInt32(0))
 				return ds
 			}(),
 			nodeToPods:     make(map[string][]*v1.Pod),
@@ -418,7 +418,7 @@ func TestGetUnavailableNumbers(t *testing.T) {
 			},
 			ds: func() *apps.DaemonSet {
 				ds := newDaemonSet("x")
-				ds.Spec.UpdateStrategy = newUpdateUnavailable(intstr.FromInt(1))
+				ds.Spec.UpdateStrategy = newUpdateUnavailable(intstr.FromInt32(1))
 				return ds
 			}(),
 			nodeToPods: func() map[string][]*v1.Pod {
@@ -446,7 +446,7 @@ func TestGetUnavailableNumbers(t *testing.T) {
 			},
 			ds: func() *apps.DaemonSet {
 				ds := newDaemonSet("x")
-				ds.Spec.UpdateStrategy = newUpdateUnavailable(intstr.FromInt(0))
+				ds.Spec.UpdateStrategy = newUpdateUnavailable(intstr.FromInt32(0))
 				return ds
 			}(),
 			nodeToPods: func() map[string][]*v1.Pod {
@@ -471,7 +471,7 @@ func TestGetUnavailableNumbers(t *testing.T) {
 			},
 			ds: func() *apps.DaemonSet {
 				ds := newDaemonSet("x")
-				ds.Spec.UpdateStrategy = newUpdateSurge(intstr.FromInt(0))
+				ds.Spec.UpdateStrategy = newUpdateSurge(intstr.FromInt32(0))
 				return ds
 			}(),
 			nodeToPods: func() map[string][]*v1.Pod {

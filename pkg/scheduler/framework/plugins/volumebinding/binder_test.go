@@ -349,7 +349,7 @@ func (env *testEnv) updateVolumes(ctx context.Context, pvs []*v1.PersistentVolum
 		}
 		pvs[i] = newPv
 	}
-	return wait.Poll(100*time.Millisecond, 3*time.Second, func() (bool, error) {
+	return wait.PollUntilContextTimeout(ctx, 100*time.Millisecond, 3*time.Second, false, func(ctx context.Context) (bool, error) {
 		for _, pv := range pvs {
 			obj, err := env.internalPVCache.GetAPIObj(pv.Name)
 			if obj == nil || err != nil {
@@ -375,7 +375,7 @@ func (env *testEnv) updateClaims(ctx context.Context, pvcs []*v1.PersistentVolum
 		}
 		pvcs[i] = newPvc
 	}
-	return wait.Poll(100*time.Millisecond, 3*time.Second, func() (bool, error) {
+	return wait.PollUntilContextTimeout(ctx, 100*time.Millisecond, 3*time.Second, false, func(ctx context.Context) (bool, error) {
 		for _, pvc := range pvcs {
 			obj, err := env.internalPVCCache.GetAPIObj(getPVCName(pvc))
 			if obj == nil || err != nil {
@@ -627,7 +627,7 @@ func makeTestPVC(name, size, node string, pvcBoundState int, pvName, resourceVer
 			ResourceVersion: resourceVersion,
 		},
 		Spec: v1.PersistentVolumeClaimSpec{
-			Resources: v1.ResourceRequirements{
+			Resources: v1.VolumeResourceRequirements{
 				Requests: v1.ResourceList{
 					v1.ResourceName(v1.ResourceStorage): resource.MustParse(size),
 				},
@@ -2343,7 +2343,7 @@ func TestGetEligibleNodes(t *testing.T) {
 		nodes []*v1.Node
 
 		// Expected return values
-		eligibleNodes sets.String
+		eligibleNodes sets.Set[string]
 	}
 
 	scenarios := map[string]scenarioType{
@@ -2389,7 +2389,7 @@ func TestGetEligibleNodes(t *testing.T) {
 				node1,
 				node2,
 			},
-			eligibleNodes: sets.NewString("node1"),
+			eligibleNodes: sets.New("node1"),
 		},
 		"multi-local-pv-with-different-nodes": {
 			pvcs: []*v1.PersistentVolumeClaim{
@@ -2406,7 +2406,7 @@ func TestGetEligibleNodes(t *testing.T) {
 				node1,
 				node2,
 			},
-			eligibleNodes: sets.NewString(),
+			eligibleNodes: sets.New[string](),
 		},
 		"local-and-non-local-pv": {
 			pvcs: []*v1.PersistentVolumeClaim{
@@ -2426,7 +2426,7 @@ func TestGetEligibleNodes(t *testing.T) {
 				node1,
 				node2,
 			},
-			eligibleNodes: sets.NewString("node1"),
+			eligibleNodes: sets.New("node1"),
 		},
 	}
 
@@ -2449,7 +2449,7 @@ func TestGetEligibleNodes(t *testing.T) {
 			fmt.Println("foo")
 		}
 
-		if compDiff := cmp.Diff(scenario.eligibleNodes, eligibleNodes, cmp.Comparer(func(a, b sets.String) bool {
+		if compDiff := cmp.Diff(scenario.eligibleNodes, eligibleNodes, cmp.Comparer(func(a, b sets.Set[string]) bool {
 			return reflect.DeepEqual(a, b)
 		})); compDiff != "" {
 			t.Errorf("Unexpected eligible nodes (-want +got):\n%s", compDiff)

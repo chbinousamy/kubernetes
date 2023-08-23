@@ -25,7 +25,6 @@ import (
 	v1 "k8s.io/api/core/v1"
 	apiequality "k8s.io/apimachinery/pkg/api/equality"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/util/diff"
 	"k8s.io/apimachinery/pkg/util/wait"
 	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/kubernetes/test/e2e/framework"
@@ -33,6 +32,7 @@ import (
 	testutils "k8s.io/kubernetes/test/utils"
 	admissionapi "k8s.io/pod-security-admission/api"
 
+	"github.com/google/go-cmp/cmp"
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 )
@@ -40,7 +40,7 @@ import (
 var _ = SIGDescribe("NodeLease", func() {
 	var nodeName string
 	f := framework.NewDefaultFramework("node-lease-test")
-	f.NamespacePodSecurityEnforceLevel = admissionapi.LevelPrivileged
+	f.NamespacePodSecurityLevel = admissionapi.LevelPrivileged
 
 	ginkgo.BeforeEach(func(ctx context.Context) {
 		node, err := e2enode.GetRandomReadySchedulableNode(ctx, f.ClientSet)
@@ -84,7 +84,7 @@ var _ = SIGDescribe("NodeLease", func() {
 				}
 				return nil
 			}, time.Duration(*lease.Spec.LeaseDurationSeconds)*time.Second,
-				time.Duration(*lease.Spec.LeaseDurationSeconds/4)*time.Second)
+				time.Duration(*lease.Spec.LeaseDurationSeconds/4)*time.Second).Should(gomega.Succeed())
 		})
 
 		ginkgo.It("should have OwnerReferences set", func(ctx context.Context) {
@@ -105,9 +105,9 @@ var _ = SIGDescribe("NodeLease", func() {
 			for i := range leaseList.Items {
 				lease := &leaseList.Items[i]
 				ownerRefs := lease.ObjectMeta.OwnerReferences
-				framework.ExpectEqual(len(ownerRefs), 1)
-				framework.ExpectEqual(ownerRefs[0].Kind, v1.SchemeGroupVersion.WithKind("Node").Kind)
-				framework.ExpectEqual(ownerRefs[0].APIVersion, v1.SchemeGroupVersion.WithKind("Node").Version)
+				gomega.Expect(ownerRefs).To(gomega.HaveLen(1))
+				gomega.Expect(ownerRefs[0].Kind).To(gomega.Equal(v1.SchemeGroupVersion.WithKind("Node").Kind))
+				gomega.Expect(ownerRefs[0].APIVersion).To(gomega.Equal(v1.SchemeGroupVersion.WithKind("Node").Version))
 			}
 		})
 
@@ -159,7 +159,7 @@ var _ = SIGDescribe("NodeLease", func() {
 				if !apiequality.Semantic.DeepEqual(lastStatus, currentStatus) {
 					// heartbeat time changed, but there were relevant changes in the status, keep waiting
 					framework.Logf("node status heartbeat changed in %s (with other status changes), waiting for %s", currentHeartbeatTime.Sub(lastHeartbeatTime), leaseDuration)
-					framework.Logf("%s", diff.ObjectReflectDiff(lastStatus, currentStatus))
+					framework.Logf("%s", cmp.Diff(lastStatus, currentStatus))
 					lastHeartbeatTime = currentHeartbeatTime
 					lastObserved = currentObserved
 					lastStatus = currentStatus
@@ -181,7 +181,7 @@ var _ = SIGDescribe("NodeLease", func() {
 			node, err := f.ClientSet.CoreV1().Nodes().Get(ctx, nodeName, metav1.GetOptions{})
 			framework.ExpectNoError(err)
 			_, readyCondition := testutils.GetNodeCondition(&node.Status, v1.NodeReady)
-			framework.ExpectEqual(readyCondition.Status, v1.ConditionTrue)
+			gomega.Expect(readyCondition.Status).To(gomega.Equal(v1.ConditionTrue))
 		})
 	})
 })
@@ -190,7 +190,7 @@ func getHeartbeatTimeAndStatus(ctx context.Context, clientSet clientset.Interfac
 	node, err := clientSet.CoreV1().Nodes().Get(ctx, nodeName, metav1.GetOptions{})
 	framework.ExpectNoError(err)
 	_, readyCondition := testutils.GetNodeCondition(&node.Status, v1.NodeReady)
-	framework.ExpectEqual(readyCondition.Status, v1.ConditionTrue)
+	gomega.Expect(readyCondition.Status).To(gomega.Equal(v1.ConditionTrue))
 	heartbeatTime := readyCondition.LastHeartbeatTime.Time
 	readyCondition.LastHeartbeatTime = metav1.Time{}
 	return heartbeatTime, node.Status

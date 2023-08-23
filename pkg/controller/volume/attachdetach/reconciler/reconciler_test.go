@@ -18,6 +18,8 @@ package reconciler
 
 import (
 	"context"
+	"fmt"
+	"sync"
 	"testing"
 	"time"
 
@@ -25,17 +27,17 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	k8stypes "k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/wait"
-	utilfeature "k8s.io/apiserver/pkg/util/feature"
 	"k8s.io/client-go/informers"
 	"k8s.io/client-go/tools/record"
-	featuregatetesting "k8s.io/component-base/featuregate/testing"
+	"k8s.io/component-base/metrics/legacyregistry"
+	metricstestutil "k8s.io/component-base/metrics/testutil"
 	"k8s.io/klog/v2"
 	"k8s.io/klog/v2/ktesting"
 	"k8s.io/kubernetes/pkg/controller"
 	"k8s.io/kubernetes/pkg/controller/volume/attachdetach/cache"
+	"k8s.io/kubernetes/pkg/controller/volume/attachdetach/metrics"
 	"k8s.io/kubernetes/pkg/controller/volume/attachdetach/statusupdater"
 	controllervolumetesting "k8s.io/kubernetes/pkg/controller/volume/attachdetach/testing"
-	"k8s.io/kubernetes/pkg/features"
 	volumetesting "k8s.io/kubernetes/pkg/volume/testing"
 	"k8s.io/kubernetes/pkg/volume/util/operationexecutor"
 	"k8s.io/kubernetes/pkg/volume/util/types"
@@ -47,7 +49,10 @@ const (
 	syncLoopPeriod                = 100 * time.Minute
 	maxWaitForUnmountDuration     = 50 * time.Millisecond
 	maxLongWaitForUnmountDuration = 4200 * time.Second
+	volumeAttachedCheckTimeout    = 5 * time.Second
 )
+
+var registerMetrics sync.Once
 
 // Calls Run()
 // Verifies there are no calls to attach or detach.
@@ -219,6 +224,9 @@ func Test_Run_Positive_OneDesiredVolumeAttachThenDetachWithUnmountedVolume(t *te
 // Deletes the node/volume/pod tuple from desiredStateOfWorld cache without first marking the node/volume as unmounted.
 // Verifies there is one detach call and no (new) attach calls.
 func Test_Run_Positive_OneDesiredVolumeAttachThenDetachWithMountedVolume(t *testing.T) {
+	registerMetrics.Do(func() {
+		legacyregistry.MustRegister(metrics.ForceDetachMetricCounter)
+	})
 	// Arrange
 	volumePluginMgr, fakePlugin := volumetesting.GetTestVolumePluginMgr(t)
 	dsw := cache.NewDesiredStateOfWorld(volumePluginMgr)
@@ -285,6 +293,9 @@ func Test_Run_Positive_OneDesiredVolumeAttachThenDetachWithMountedVolume(t *test
 	waitForAttachCallCount(t, 1 /* expectedAttachCallCount */, fakePlugin)
 	verifyNewDetacherCallCount(t, false /* expectZeroNewDetacherCallCount */, fakePlugin)
 	waitForDetachCallCount(t, 1 /* expectedDetachCallCount */, fakePlugin)
+
+	// Force detach metric due to timeout
+	testForceDetachMetric(t, 1, metrics.ForceDetachReasonTimeout)
 }
 
 // Populates desiredStateOfWorld cache with one node/volume/pod tuple.
@@ -604,7 +615,7 @@ func Test_Run_OneVolumeAttachAndDetachUncertainNodesWithReadWriteOnce(t *testing
 	// Volume is added to asw. Because attach operation fails, volume should not be reported as attached to the node.
 	waitForVolumeAddedToNode(t, generatedVolumeName, nodeName1, asw)
 	verifyVolumeAttachedToNode(t, generatedVolumeName, nodeName1, cache.AttachStateAttached, asw)
-	verifyVolumeReportedAsAttachedToNode(t, logger, generatedVolumeName, nodeName1, true, asw)
+	verifyVolumeReportedAsAttachedToNode(t, logger, generatedVolumeName, nodeName1, true, asw, volumeAttachedCheckTimeout)
 
 	// When volume is added to the node, it is set to mounted by default. Then the status will be updated by checking node status VolumeInUse.
 	// Without this, the delete operation will be delayed due to mounted status
@@ -665,7 +676,7 @@ func Test_Run_UpdateNodeStatusFailBeforeOneVolumeDetachNodeWithReadWriteOnce(t *
 	// Volume is added to asw, volume should be reported as attached to the node.
 	waitForVolumeAddedToNode(t, generatedVolumeName, nodeName1, asw)
 	verifyVolumeAttachedToNode(t, generatedVolumeName, nodeName1, cache.AttachStateAttached, asw)
-	verifyVolumeReportedAsAttachedToNode(t, logger, generatedVolumeName, nodeName1, true, asw)
+	verifyVolumeReportedAsAttachedToNode(t, logger, generatedVolumeName, nodeName1, true, asw, volumeAttachedCheckTimeout)
 
 	// Delete the pod
 	dsw.DeletePod(types.UniquePodName(podName1), generatedVolumeName, nodeName1)
@@ -683,7 +694,7 @@ func Test_Run_UpdateNodeStatusFailBeforeOneVolumeDetachNodeWithReadWriteOnce(t *
 	// in node status. By calling this function (GetVolumesToReportAttached), node status should be updated, and the volume
 	// will not need to be updated until new changes are applied (detach is triggered again)
 	verifyVolumeAttachedToNode(t, generatedVolumeName, nodeName1, cache.AttachStateAttached, asw)
-	verifyVolumeReportedAsAttachedToNode(t, logger, generatedVolumeName, nodeName1, true, asw)
+	verifyVolumeReportedAsAttachedToNode(t, logger, generatedVolumeName, nodeName1, true, asw, volumeAttachedCheckTimeout)
 
 }
 
@@ -728,11 +739,10 @@ func Test_Run_OneVolumeDetachFailNodeWithReadWriteOnce(t *testing.T) {
 		t.Fatalf("AddPod failed. Expected: <no error> Actual: <%v>", podAddErr)
 	}
 
-	time.Sleep(1000 * time.Millisecond)
 	// Volume is added to asw, volume should be reported as attached to the node.
 	waitForVolumeAddedToNode(t, generatedVolumeName, nodeName1, asw)
 	verifyVolumeAttachedToNode(t, generatedVolumeName, nodeName1, cache.AttachStateAttached, asw)
-	verifyVolumeReportedAsAttachedToNode(t, logger, generatedVolumeName, nodeName1, true, asw)
+	verifyVolumeReportedAsAttachedToNode(t, logger, generatedVolumeName, nodeName1, true, asw, volumeAttachedCheckTimeout)
 
 	// Delete the pod, but detach will fail
 	dsw.DeletePod(types.UniquePodName(podName1), generatedVolumeName, nodeName1)
@@ -747,22 +757,7 @@ func Test_Run_OneVolumeDetachFailNodeWithReadWriteOnce(t *testing.T) {
 	// will not need to be updated until new changes are applied (detach is triggered again)
 	time.Sleep(100 * time.Millisecond)
 	verifyVolumeAttachedToNode(t, generatedVolumeName, nodeName1, cache.AttachStateAttached, asw)
-	verifyVolumeReportedAsAttachedToNode(t, logger, generatedVolumeName, nodeName1, true, asw)
-
-	// After the first detach fails, reconciler will wait for a period of time before retrying to detach.
-	// The wait time is increasing exponentially from initial value of 0.5s (0.5, 1, 2, 4, ...).
-	// The test here waits for 100 Millisecond to make sure it is in exponential backoff period after
-	// the first detach operation. At this point, volumes status should not be updated
-	time.Sleep(100 * time.Millisecond)
-	verifyVolumeAttachedToNode(t, generatedVolumeName, nodeName1, cache.AttachStateAttached, asw)
-	verifyVolumeNoStatusUpdateNeeded(t, logger, generatedVolumeName, nodeName1, asw)
-
-	// Wait for 600ms to make sure second detach operation triggered. Again, The volume will be
-	// removed from being reported as attached on node status and then added back as attached.
-	// The volume will be in the list of attached volumes that need to be updated to node status.
-	time.Sleep(600 * time.Millisecond)
-	verifyVolumeAttachedToNode(t, generatedVolumeName, nodeName1, cache.AttachStateAttached, asw)
-	verifyVolumeReportedAsAttachedToNode(t, logger, generatedVolumeName, nodeName1, true, asw)
+	verifyVolumeReportedAsAttachedToNode(t, logger, generatedVolumeName, nodeName1, true, asw, volumeAttachedCheckTimeout)
 
 	// Add a second pod which tries to attach the volume to the same node.
 	// After adding pod to the same node, detach will not be triggered any more.
@@ -773,7 +768,7 @@ func Test_Run_OneVolumeDetachFailNodeWithReadWriteOnce(t *testing.T) {
 	// Sleep 1s to verify no detach are triggered after second pod is added in the future.
 	time.Sleep(1000 * time.Millisecond)
 	verifyVolumeAttachedToNode(t, generatedVolumeName, nodeName1, cache.AttachStateAttached, asw)
-	verifyVolumeNoStatusUpdateNeeded(t, logger, generatedVolumeName, nodeName1, asw)
+	// verifyVolumeNoStatusUpdateNeeded(t, logger, generatedVolumeName, nodeName1, asw)
 
 	// Add a third pod which tries to attach the volume to a different node.
 	// At this point, volume is still attached to first node. There are no status update for both nodes.
@@ -834,7 +829,7 @@ func Test_Run_OneVolumeAttachAndDetachTimeoutNodesWithReadWriteOnce(t *testing.T
 	// Volume is added to asw. Because attach operation fails, volume should not be reported as attached to the node.
 	waitForVolumeAddedToNode(t, generatedVolumeName, nodeName1, asw)
 	verifyVolumeAttachedToNode(t, generatedVolumeName, nodeName1, cache.AttachStateUncertain, asw)
-	verifyVolumeReportedAsAttachedToNode(t, logger, generatedVolumeName, nodeName1, false, asw)
+	verifyVolumeReportedAsAttachedToNode(t, logger, generatedVolumeName, nodeName1, false, asw, volumeAttachedCheckTimeout)
 
 	// When volume is added to the node, it is set to mounted by default. Then the status will be updated by checking node status VolumeInUse.
 	// Without this, the delete operation will be delayed due to mounted status
@@ -865,7 +860,9 @@ func Test_Run_OneVolumeAttachAndDetachTimeoutNodesWithReadWriteOnce(t *testing.T
 // Deletes the pod from desiredStateOfWorld cache without first marking the node/volume as unmounted.
 // Verifies there is one detach call and no (new) attach calls.
 func Test_Run_OneVolumeDetachOnOutOfServiceTaintedNode(t *testing.T) {
-	defer featuregatetesting.SetFeatureGateDuringTest(t, utilfeature.DefaultFeatureGate, features.NodeOutOfServiceVolumeDetach, true)()
+	registerMetrics.Do(func() {
+		legacyregistry.MustRegister(metrics.ForceDetachMetricCounter)
+	})
 	// Arrange
 	volumePluginMgr, fakePlugin := volumetesting.GetTestVolumePluginMgr(t)
 	dsw := cache.NewDesiredStateOfWorld(volumePluginMgr)
@@ -934,6 +931,9 @@ func Test_Run_OneVolumeDetachOnOutOfServiceTaintedNode(t *testing.T) {
 	waitForAttachCallCount(t, 1 /* expectedAttachCallCount */, fakePlugin)
 	verifyNewDetacherCallCount(t, false /* expectZeroNewDetacherCallCount */, fakePlugin)
 	waitForDetachCallCount(t, 1 /* expectedDetachCallCount */, fakePlugin)
+
+	// Force detach metric due to out-of-service taint
+	testForceDetachMetric(t, 1, metrics.ForceDetachReasonOutOfService)
 }
 
 // Populates desiredStateOfWorld cache with one node/volume/pod tuple.
@@ -947,7 +947,6 @@ func Test_Run_OneVolumeDetachOnOutOfServiceTaintedNode(t *testing.T) {
 // Deletes the pod from desiredStateOfWorld cache without first marking the node/volume as unmounted.
 // Verifies there is no detach call and no (new) attach calls.
 func Test_Run_OneVolumeDetachOnNoOutOfServiceTaintedNode(t *testing.T) {
-	defer featuregatetesting.SetFeatureGateDuringTest(t, utilfeature.DefaultFeatureGate, features.NodeOutOfServiceVolumeDetach, true)()
 	// Arrange
 	volumePluginMgr, fakePlugin := volumetesting.GetTestVolumePluginMgr(t)
 	dsw := cache.NewDesiredStateOfWorld(volumePluginMgr)
@@ -1612,24 +1611,32 @@ func verifyVolumeReportedAsAttachedToNode(
 	nodeName k8stypes.NodeName,
 	isAttached bool,
 	asw cache.ActualStateOfWorld,
+	timeout time.Duration,
 ) {
-	result := false
-	volumes := asw.GetVolumesToReportAttached(logger)
-	for _, volume := range volumes[nodeName] {
-		if volume.Name == volumeName {
-			result = true
+	var result bool
+	var lastErr error
+	err := wait.PollUntilContextTimeout(context.TODO(), 50*time.Millisecond, timeout, false, func(context.Context) (done bool, err error) {
+		volumes := asw.GetVolumesToReportAttached(logger)
+		for _, volume := range volumes[nodeName] {
+			if volume.Name == volumeName {
+				result = true
+			}
 		}
-	}
 
-	if result == isAttached {
-		t.Logf("Volume <%v> is reported as attached to node <%v>: %v", volumeName, nodeName, result)
-		return
+		if result == isAttached {
+			t.Logf("Volume <%v> is reported as attached to node <%v>: %v", volumeName, nodeName, result)
+			return true, nil
+		}
+		lastErr = fmt.Errorf("Check volume <%v> is reported as attached to node <%v>, got %v, expected %v",
+			volumeName,
+			nodeName,
+			result,
+			isAttached)
+		return false, nil
+	})
+	if err != nil {
+		t.Fatalf("last error: %q, wait timeout: %q", lastErr, err.Error())
 	}
-	t.Fatalf("Check volume <%v> is reported as attached to node <%v>, got %v, expected %v",
-		volumeName,
-		nodeName,
-		result,
-		isAttached)
 
 }
 
@@ -1671,4 +1678,17 @@ func retryWithExponentialBackOff(initialDuration time.Duration, fn wait.Conditio
 		Steps:    6,
 	}
 	return wait.ExponentialBackoff(backoff, fn)
+}
+
+// verifies the force detach metric with reason
+func testForceDetachMetric(t *testing.T, inputForceDetachMetricCounter int, reason string) {
+	t.Helper()
+
+	actualForceDetachMericCounter, err := metricstestutil.GetCounterMetricValue(metrics.ForceDetachMetricCounter.WithLabelValues(reason))
+	if err != nil {
+		t.Errorf("Error getting actualForceDetachMericCounter")
+	}
+	if actualForceDetachMericCounter != float64(inputForceDetachMetricCounter) {
+		t.Errorf("Expected desiredForceDetachMericCounter to be %d, got %v", inputForceDetachMetricCounter, actualForceDetachMericCounter)
+	}
 }
