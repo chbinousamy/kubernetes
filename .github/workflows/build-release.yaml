@@ -1,4 +1,4 @@
-name: "Build Kubernetes"
+name: "Build Release"
 
 # Événements sur lesquels il doit être déclenché
 on:
