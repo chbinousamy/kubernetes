@@ -1,0 +1,27 @@
+name: "Build Cross"
+
+# Événements sur lesquels il doit être déclenché
+on:
+  workflow_dispatch: # <- Manuellement
+  push:         # <- Déclenché lorsque l'on pousse du code...
+   branches:
+     - master  # <- ... mais seulement sur cette branche
+
+jobs:
+  build: # <- Nom du job
+    runs-on: ubuntu-latest
+    steps:  
+      - 
+        name: "Checkout"
+        uses: actions/checkout@v3
+      -
+        # Add support for more platforms with QEMU (optional)
+        # https://github.com/docker/setup-qemu-action
+        name: Set up QEMU
+        uses: docker/setup-qemu-action@v2
+      -
+        name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v2
+
+      - name: "Build Cross Compile"
+        run: build/run.sh make cross KUBE_BUILD_PLATFORMS=linux/amd64
