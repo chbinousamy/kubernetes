@@ -29,8 +29,7 @@ jobs:
           # Install etcd and add to PATH
           # Option a) install inside kubernetes root
           hack/install-etcd.sh  # Installs in ./third_party/etcd
-          echo export PATH="\$PATH:$(pwd)/third_party/etcd" >> ~/.profile  # Add to PATH
-          echo export PATH="\$PATH:$(pwd)/third_party/etcd" >> $GITHUB_PATH
+          echo "$(pwd)/third_party/etcd" >> $GITHUB_PATH
           echo $GITHUB_PATH
       - 
         name: "Build Release Kubernetes"
