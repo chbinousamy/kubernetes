@@ -29,7 +29,8 @@ jobs:
           # Install etcd and add to PATH
           # Option a) install inside kubernetes root
           hack/install-etcd.sh  # Installs in ./third_party/etcd
-          echo "$(pwd)/third_party/etcd" >> $GITHUB_PATH
+          echo $GITHUB_PATH
+          echo "$(pwd)/third_party/etcd/" >> $GITHUB_PATH
           echo $GITHUB_PATH
           which etcd
       - 
