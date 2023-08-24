@@ -31,15 +31,10 @@ jobs:
           hack/install-etcd.sh  # Installs in ./third_party/etcd
           echo export PATH="\$PATH:$(pwd)/third_party/etcd" >> ~/.profile  # Add to PATH
           echo export PATH="\$PATH:$(pwd)/third_party/etcd" >> $GITHUB_PATH
-          # Option b) install manually
-          grep -E "image.*etcd" cluster/gce/manifests/etcd.manifest  # Find version
-          # Install that version using yum/apt-get/etc
-          echo export PATH="\$PATH:<LOCATION>" >> ~/.profile  # Add to PATH
-          echo export PATH="\$PATH:<LOCATION>" >> $GITHUB_PATH
+          echo $GITHUB_PATH
       - 
         name: "Build Release Kubernetes"
         run: build/release.sh
-
       - 
         name: Archive Release artifacts
         uses: actions/upload-artifact@v3
