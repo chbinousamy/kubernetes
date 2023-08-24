@@ -9,7 +9,8 @@ on:
 
 jobs:
   build: # <- Nom du job
-    runs-on: ubuntu-latest
+    #runs-on: ubuntu-latest
+    runs-on: k8s-builder
     steps:  
       - 
         name: "Checkout"
