@@ -25,6 +25,7 @@ jobs:
         uses: docker/setup-buildx-action@v2
       -
         name: install etcd
+        shell: bash
         run: |
           # Install etcd and add to PATH
           # Option a) install inside kubernetes root
