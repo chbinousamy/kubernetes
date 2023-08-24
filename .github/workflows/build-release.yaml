@@ -29,14 +29,12 @@ jobs:
           # Install etcd and add to PATH
           # Option a) install inside kubernetes root
           hack/install-etcd.sh  # Installs in ./third_party/etcd
-          env
           echo "PATH=$pwd/third_party/etcd:$PATH" >> $GITHUB_ENV
-          env
           which etcd
       - 
         name: "Build Release Kubernetes"
         run: |
-          env
+          which etcd
           build/release.sh
       - 
         name: Archive Release artifacts
