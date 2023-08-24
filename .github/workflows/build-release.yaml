@@ -25,14 +25,13 @@ jobs:
         uses: docker/setup-buildx-action@v2
       -
         name: install etcd
-        shell: bash
         run: |
           # Install etcd and add to PATH
           # Option a) install inside kubernetes root
           hack/install-etcd.sh  # Installs in ./third_party/etcd
-          echo $GITHUB_PATH
-          echo "$pwd/third_party/etcd/" >> $GITHUB_PATH
-          echo $GITHUB_PATH
+          echo $GITHUB_ENV
+          echo "PATH=$pwd/third_party/etcd:$PATH" >> $GITHUB_ENV
+          echo $GITHUB_ENV
           which etcd
       - 
         name: "Build Release Kubernetes"
