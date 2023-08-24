@@ -23,7 +23,17 @@ jobs:
       -
         name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v2
-
+      -
+        name: install etcd
+        run: |
+          # Install etcd and add to PATH
+          # Option a) install inside kubernetes root
+          hack/install-etcd.sh  # Installs in ./third_party/etcd
+          echo export PATH="\$PATH:$(pwd)/third_party/etcd" >> ~/.profile  # Add to PATH
+          # Option b) install manually
+          grep -E "image.*etcd" cluster/gce/manifests/etcd.manifest  # Find version
+          # Install that version using yum/apt-get/etc
+          echo export PATH="\$PATH:<LOCATION>" >> ~/.profile  # Add to PATH
       - 
         name: "Build Release Kubernetes"
         run: build/release.sh
