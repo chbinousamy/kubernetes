@@ -36,6 +36,6 @@ jobs:
         run: | 
           KUBECONFIG="${HOME}/.kube/kind-test-config"
           echo "KUBECONFIG=${HOME}/.kube/kind-test-config" >> GITHUB_ENV
-          kind create cluster --config kind-config.yaml --image kindest/node -v4
+          kind create cluster --config kind-config.yaml --image kindest/node:v1.28.0 -v4
             
           
