@@ -1,0 +1,41 @@
+name: "Run Conformance Tests"
+
+# Événements sur lesquels il doit être déclenché
+on:
+  workflow_dispatch: # <- Manuellement
+  #push:         # <- Déclenché lorsque l'on pousse du code...
+  # branches:
+  #   - master  # <- ... mais seulement sur cette branche
+
+jobs:
+  conformance-tests: # <- Nom du job
+    runs-on: ubuntu-latest
+    #runs-on: k8s-builder
+    steps:  
+      - 
+        name: "Checkout"
+        uses: actions/checkout@v3
+      -
+        name: "Install kind"
+        run: |
+          go install sigs.k8s.io/kind@v0.20.0
+          cat << EOF > kind-config.yaml
+          # necessary for conformance
+          kind: Cluster
+          apiVersion: kind.x-k8s.io/v1alpha4
+          networking:
+            ipFamily: ipv4
+          nodes:
+          # the control plane node
+          - role: control-plane
+          - role: worker
+          - role: worker
+          EOF
+        -
+          name: "Create the cluster"
+          run: | 
+            KUBECONFIG="${HOME}/.kube/kind-test-config"
+            echo "KUBECONFIG=${HOME}/.kube/kind-test-config" >> GITHUB_ENV
+            kind create cluster --config kind-config.yaml --image kindest/node:latest -v4
+            
+          
