@@ -37,5 +37,12 @@ jobs:
           KUBECONFIG="${HOME}/.kube/kind-test-config"
           echo "KUBECONFIG=${HOME}/.kube/kind-test-config" >> GITHUB_ENV
           kind create cluster --config kind-config.yaml --image kindest/node:v1.28.0 -v4
-            
-          
+      -
+        name: "Create the e2e Kubernetes binary"
+        run: |
+          make WHAT="test/e2e/e2e.test"
+      -
+        name: "Execute thetests"
+        run: |
+          ./_output/bin/e2e.test -context kind-kind -ginkgo.focus="\[sig-network\].*Conformance" -num-nodes 2
+    
