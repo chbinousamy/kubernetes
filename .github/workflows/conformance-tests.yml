@@ -18,7 +18,7 @@ jobs:
       -
         name: "Install kind"
         run: |
-          # go install sigs.k8s.io/kind@v0.20.0
+          go install sigs.k8s.io/kind@v0.20.0
           kind build node-image
           cat << EOF > kind-config.yaml
           # necessary for conformance
