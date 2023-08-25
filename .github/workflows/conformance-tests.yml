@@ -31,7 +31,7 @@ jobs:
           - role: worker
           - role: worker
           EOF
-        -
+        - 
           name: "Create the cluster"
           run: | 
             KUBECONFIG="${HOME}/.kube/kind-test-config"
