@@ -42,9 +42,13 @@ jobs:
       -
         name: "Create the e2e Kubernetes binary"
         run: |
+          kubectl get nodes
+          kubectl cluster-info --context kind-kind
           make WHAT="test/e2e/e2e.test"
       -
         name: "Execute thetests"
         run: |
+          kubectl get nodes
+          kubectl cluster-info --context kind-kind
           ./_output/bin/e2e.test -context kind-kind -ginkgo.focus="\[sig-network\].*Conformance" -num-nodes 2
     
