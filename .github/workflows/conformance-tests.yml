@@ -31,11 +31,11 @@ jobs:
           - role: worker
           - role: worker
           EOF
-        - 
-          name: "Create the cluster"
-          run: | 
-            KUBECONFIG="${HOME}/.kube/kind-test-config"
-            echo "KUBECONFIG=${HOME}/.kube/kind-test-config" >> GITHUB_ENV
-            kind create cluster --config kind-config.yaml --image kindest/node:latest -v4
+      - 
+        name: "Create the cluster"
+        run: | 
+          KUBECONFIG="${HOME}/.kube/kind-test-config"
+          echo "KUBECONFIG=${HOME}/.kube/kind-test-config" >> GITHUB_ENV
+          kind create cluster --config kind-config.yaml --image kindest/node:latest -v4
             
           
