@@ -31,7 +31,6 @@ jobs:
           - role: worker
           - role: worker
           EOF
-          kind build node-image
       - 
         name: "Create the cluster"
         run: | 
