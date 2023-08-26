@@ -19,9 +19,6 @@ jobs:
         name: "Install kind"
         run: |
           go install sigs.k8s.io/kind@v0.20.0
-          pwd
-          ls
-          kind build node-image
           cat << EOF > kind-config.yaml
           # necessary for conformance
           kind: Cluster
@@ -34,6 +31,7 @@ jobs:
           - role: worker
           - role: worker
           EOF
+          kind build node-image
       - 
         name: "Create the cluster"
         run: | 
