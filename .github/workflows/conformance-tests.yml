@@ -19,7 +19,6 @@ jobs:
         name: "Install kind"
         run: |
           go install sigs.k8s.io/kind@v0.20.0
-          cd build
           pwd
           ls
           kind build node-image
