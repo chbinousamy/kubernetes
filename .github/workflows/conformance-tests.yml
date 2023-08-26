@@ -31,20 +31,15 @@ jobs:
           - role: worker
           - role: worker
           EOF
-          kind build node-image
       - 
         name: "Create the cluster"
         run: | 
           KUBECONFIG="${HOME}/.kube/kind-test-config"
           echo "KUBECONFIG=${HOME}/.kube/kind-test-config" >> GITHUB_ENV
           kind create cluster --config kind-config.yaml --image kindest/node:v1.28.0 -v4
-          kubectl get nodes
-          kubectl cluster-info --context kind-kind
       -
         name: "Create the e2e Kubernetes binary"
         run: |
-          kubectl get nodes
-          kubectl cluster-info --context kind-kind
           make WHAT="test/e2e/e2e.test"
       -
         name: "Execute thetests"
