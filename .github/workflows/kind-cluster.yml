@@ -1,0 +1,99 @@
+name: Kind Cluster
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches:
+      - main
+    paths-ignore:
+      - 'site/**'
+
+permissions:
+  contents: read
+
+jobs:
+  cluster:
+    name: Docker
+    runs-on: ubuntu-20.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        ipFamily: [ipv4]
+        deployment: [multiNode]
+    env:
+      JOB_NAME: "docker-${{ matrix.deployment }}-${{ matrix.ipFamily }}"
+      IP_FAMILY: ${{ matrix.ipFamily }}
+    steps:
+      - 
+        name: Update Ubuntu
+        run: |
+          sudo apt update
+          sudo apt upgrade -y
+          sudo apt install -y golang
+     # -
+     #   name: Set up QEMU
+     #   uses: docker/setup-qemu-action@v2
+     # -
+     #   name: Set up Docker Buildx
+     #   uses: docker/setup-buildx-action@v2
+      -
+        name: Install kind
+        run: go install sigs.k8s.io/kind@v0.20.0
+      - 
+        name: Install kubectl
+        run: |
+          curl -LO https://dl.k8s.io/release/$(curl -sL https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl
+          chmod +x ./kubectl
+          sudo mv ./kubectl /usr/local/bin/kubectl
+      - name: Enable ipv4 and ipv6 forwarding
+        run: |
+          sudo sysctl -w net.ipv6.conf.all.forwarding=1
+          sudo sysctl -w net.ipv4.ip_forward=1
+      - name: Create single node cluster
+        if: ${{ matrix.deployment == 'singleNode' }}
+        run: |
+          cat <<EOF | /usr/local/bin/kind create cluster -v7 --wait 1m --retain --config=-
+          kind: Cluster
+          apiVersion: kind.x-k8s.io/v1alpha4
+          networking:
+            ipFamily: ${IP_FAMILY}
+          EOF
+      - name: Create multi node cluster
+        if: ${{ matrix.deployment == 'multiNode' }}
+        run: |
+          cat <<EOF | kind create cluster -v7 --wait 1m --retain --config=-
+          kind: Cluster
+          apiVersion: kind.x-k8s.io/v1alpha4
+          networking:
+            ipFamily: ${IP_FAMILY}
+          nodes:
+          - role: control-plane
+          - role: worker
+          - role: worker
+          EOF
+      - name: Get Cluster status
+        run: |
+          # wait network is ready
+          kubectl wait --for=condition=ready pods --namespace=kube-system -l k8s-app=kube-dns
+          kubectl get nodes -o wide
+          kubectl get pods -A
+      - name: Load docker image
+        run: |
+          docker pull busybox
+          /usr/local/bin/kind load docker-image busybox
+      - name: Export logs
+        if: always()
+        run: |
+          mkdir -p /tmp/kind/logs
+          /usr/local/bin/kind export logs /tmp/kind/logs
+          sudo chown -R $USER:$USER /tmp/kind/logs
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@0b7f8abb1508181956e8e162db84b466c27e18ce # v3.1.2
+        with:
+          name: kind-logs-${{ env.JOB_NAME }}-${{ github.run_id }}
+          path: /tmp/kind/logs
+
+      - name: Delete cluster
+        run: /usr/local/bin/kind delete cluster
