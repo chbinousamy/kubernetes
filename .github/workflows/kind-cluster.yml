@@ -20,7 +20,7 @@ jobs:
       fail-fast: false
       matrix:
         ipFamily: [ipv4, ipv6]
-        deployment: [multiNode]
+        deployment: [singleNode, multiNode]
     env:
       JOB_NAME: "cluster-${{ matrix.deployment }}-${{ matrix.ipFamily }}"
       IP_FAMILY: ${{ matrix.ipFamily }}
