@@ -81,6 +81,7 @@ jobs:
           kubectl wait --for=condition=ready pods --namespace=kube-system -l k8s-app=kube-dns
           kubectl get nodes -o wide
           kubectl get pods -A
+          kubectl cluster-info
       - name: Load docker image
         run: |
           docker pull busybox
