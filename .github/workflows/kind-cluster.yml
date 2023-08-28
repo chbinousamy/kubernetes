@@ -49,12 +49,12 @@ jobs:
           curl -LO https://dl.k8s.io/release/$(curl -sL https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl
           chmod +x ./kubectl
           sudo mv ./kubectl /usr/local/bin/kubectl
-      - name: Install helm
-        run: |
-          curl -Lo ./get-helm-3 https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3
-          chmod +x get-helm-3
-          sudo ./get-helm-3
-          helm repo update
+     # - name: Install helm
+     #   run: |
+     #     curl -Lo ./get-helm-3 https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3
+     #     chmod +x get-helm-3
+     #     sudo ./get-helm-3
+     #     helm repo update
       - name: Enable ipv4 and ipv6 forwarding
         run: |
           sudo sysctl -w net.ipv6.conf.all.forwarding=1
