@@ -95,7 +95,7 @@ jobs:
           cnf-testsuite setup
       - name: Run cnf-tests
         run: |
-          cd ~/cnf-testsuite
+          cd ~/.cnf-testsuite
           ./cnf-testsuite workload
           ./cnf-testsuite platform
       - name: Export logs
