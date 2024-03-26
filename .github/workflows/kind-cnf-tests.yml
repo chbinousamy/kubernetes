@@ -88,11 +88,16 @@ jobs:
           kubectl get nodes -o wide
           kubectl get pods -A
           kubectl cluster-info
-      - name: Install cnf-tests
+      - name: Setup cnf-tests
         run: |
           source <(curl -s https://raw.githubusercontent.com/cnti-testcatalog/testsuite/main/curl_install.sh)
           chmod a+x ~/.cnf-testsuite/cnf-testsuite
           cnf-testsuite setup
+      - name: Run cnf-tests
+        run: |
+          cd ~/cnf-testsuite
+          ./cnf-testsuite workload
+          ./cnf-testsuite platform
       - name: Export logs
         if: always()
         run: |
