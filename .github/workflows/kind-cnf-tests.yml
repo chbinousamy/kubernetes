@@ -1,4 +1,4 @@
-name: Kind Cluster
+name: Kind CNF Tests
 
 on:
   workflow_dispatch:
@@ -89,6 +89,7 @@ jobs:
           kubectl get pods -A
           kubectl cluster-info
       - name: Install cnf-tests
+        run: |
           source <(curl -s https://raw.githubusercontent.com/cnti-testcatalog/testsuite/main/curl_install.sh)
           cnf-testsuite setup
       - name: Export logs
