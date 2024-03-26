@@ -91,6 +91,7 @@ jobs:
       - name: Install cnf-tests
         run: |
           source <(curl -s https://raw.githubusercontent.com/cnti-testcatalog/testsuite/main/curl_install.sh)
+          chmod a+x ~/.cnf-testsuite/cnf-testsuite
           cnf-testsuite setup
       - name: Export logs
         if: always()
