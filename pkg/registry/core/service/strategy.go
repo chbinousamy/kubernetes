@@ -120,7 +120,11 @@ func (svcStrategy) AllowUnconditionalUpdate() bool {
 //	    newSvc.Spec.MyFeature = nil
 //	}
 func dropServiceDisabledFields(newSvc *api.Service, oldSvc *api.Service) {
-
+	// Drop condition for TrafficDistribution field.
+	isTrafficDistributionInUse := (oldSvc != nil && oldSvc.Spec.TrafficDistribution != nil)
+	if !utilfeature.DefaultFeatureGate.Enabled(features.ServiceTrafficDistribution) && !isTrafficDistributionInUse {
+		newSvc.Spec.TrafficDistribution = nil
+	}
 }
 
 type serviceStatusStrategy struct {
@@ -277,7 +281,7 @@ func dropTypeDependentFields(newSvc *api.Service, oldSvc *api.Service) {
 
 	// If a user is switching to a type that doesn't need ExternalTrafficPolicy
 	// AND they did not change this field, it is safe to drop it.
-	if needsExternalTrafficPolicy(oldSvc) && !needsExternalTrafficPolicy(newSvc) && sameExternalTrafficPolicy(oldSvc, newSvc) {
+	if serviceapi.ExternallyAccessible(oldSvc) && !serviceapi.ExternallyAccessible(newSvc) && sameExternalTrafficPolicy(oldSvc, newSvc) {
 		newSvc.Spec.ExternalTrafficPolicy = api.ServiceExternalTrafficPolicy("")
 	}
 
@@ -374,10 +378,6 @@ func sameLoadBalancerClass(oldSvc, newSvc *api.Service) bool {
 		return true // both are nil
 	}
 	return *oldSvc.Spec.LoadBalancerClass == *newSvc.Spec.LoadBalancerClass
-}
-
-func needsExternalTrafficPolicy(svc *api.Service) bool {
-	return svc.Spec.Type == api.ServiceTypeNodePort || svc.Spec.Type == api.ServiceTypeLoadBalancer
 }
 
 func sameExternalTrafficPolicy(oldSvc, newSvc *api.Service) bool {

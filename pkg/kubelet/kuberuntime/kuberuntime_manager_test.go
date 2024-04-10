@@ -21,7 +21,6 @@ import (
 	"fmt"
 	"path/filepath"
 	"reflect"
-	goruntime "runtime"
 	"sort"
 	"testing"
 	"time"
@@ -1221,6 +1220,16 @@ func verifyActions(t *testing.T, expected, actual *podActions, desc string) {
 }
 
 func TestComputePodActionsWithInitContainers(t *testing.T) {
+	t.Run("sidecar containers disabled", func(t *testing.T) {
+		testComputePodActionsWithInitContainers(t, false)
+	})
+	t.Run("sidecar containers enabled", func(t *testing.T) {
+		testComputePodActionsWithInitContainers(t, true)
+	})
+}
+
+func testComputePodActionsWithInitContainers(t *testing.T, sidecarContainersEnabled bool) {
+	defer featuregatetesting.SetFeatureGateDuringTest(t, utilfeature.DefaultFeatureGate, features.SidecarContainers, sidecarContainersEnabled)()
 	_, _, m, err := createTestRuntimeManager()
 	require.NoError(t, err)
 
@@ -1250,10 +1259,11 @@ func TestComputePodActionsWithInitContainers(t *testing.T) {
 				status.ContainerStatuses = nil
 			},
 			actions: podActions{
-				SandboxID:             baseStatus.SandboxStatuses[0].Id,
-				InitContainersToStart: []int{0},
-				ContainersToStart:     []int{},
-				ContainersToKill:      getKillMapWithInitContainers(basePod, baseStatus, []int{}),
+				SandboxID:                baseStatus.SandboxStatuses[0].Id,
+				NextInitContainerToStart: &basePod.Spec.InitContainers[0],
+				InitContainersToStart:    []int{0},
+				ContainersToStart:        []int{},
+				ContainersToKill:         getKillMapWithInitContainers(basePod, baseStatus, []int{}),
 			},
 		},
 		"initialization in progress; do nothing": {
@@ -1269,13 +1279,14 @@ func TestComputePodActionsWithInitContainers(t *testing.T) {
 				status.SandboxStatuses[0].State = runtimeapi.PodSandboxState_SANDBOX_NOTREADY
 			},
 			actions: podActions{
-				KillPod:               true,
-				CreateSandbox:         true,
-				SandboxID:             baseStatus.SandboxStatuses[0].Id,
-				Attempt:               uint32(1),
-				InitContainersToStart: []int{0},
-				ContainersToStart:     []int{},
-				ContainersToKill:      getKillMapWithInitContainers(basePod, baseStatus, []int{}),
+				KillPod:                  true,
+				CreateSandbox:            true,
+				SandboxID:                baseStatus.SandboxStatuses[0].Id,
+				Attempt:                  uint32(1),
+				NextInitContainerToStart: &basePod.Spec.InitContainers[0],
+				InitContainersToStart:    []int{0},
+				ContainersToStart:        []int{},
+				ContainersToKill:         getKillMapWithInitContainers(basePod, baseStatus, []int{}),
 			},
 		},
 		"initialization failed; restart the last init container if RestartPolicy == Always": {
@@ -1284,10 +1295,11 @@ func TestComputePodActionsWithInitContainers(t *testing.T) {
 				status.ContainerStatuses[2].ExitCode = 137
 			},
 			actions: podActions{
-				SandboxID:             baseStatus.SandboxStatuses[0].Id,
-				InitContainersToStart: []int{2},
-				ContainersToStart:     []int{},
-				ContainersToKill:      getKillMapWithInitContainers(basePod, baseStatus, []int{}),
+				SandboxID:                baseStatus.SandboxStatuses[0].Id,
+				NextInitContainerToStart: &basePod.Spec.InitContainers[2],
+				InitContainersToStart:    []int{2},
+				ContainersToStart:        []int{},
+				ContainersToKill:         getKillMapWithInitContainers(basePod, baseStatus, []int{}),
 			},
 		},
 		"initialization failed; restart the last init container if RestartPolicy == OnFailure": {
@@ -1296,10 +1308,11 @@ func TestComputePodActionsWithInitContainers(t *testing.T) {
 				status.ContainerStatuses[2].ExitCode = 137
 			},
 			actions: podActions{
-				SandboxID:             baseStatus.SandboxStatuses[0].Id,
-				InitContainersToStart: []int{2},
-				ContainersToStart:     []int{},
-				ContainersToKill:      getKillMapWithInitContainers(basePod, baseStatus, []int{}),
+				SandboxID:                baseStatus.SandboxStatuses[0].Id,
+				NextInitContainerToStart: &basePod.Spec.InitContainers[2],
+				InitContainersToStart:    []int{2},
+				ContainersToStart:        []int{},
+				ContainersToKill:         getKillMapWithInitContainers(basePod, baseStatus, []int{}),
 			},
 		},
 		"initialization failed; kill pod if RestartPolicy == Never": {
@@ -1320,10 +1333,11 @@ func TestComputePodActionsWithInitContainers(t *testing.T) {
 				status.ContainerStatuses[2].State = kubecontainer.ContainerStateUnknown
 			},
 			actions: podActions{
-				SandboxID:             baseStatus.SandboxStatuses[0].Id,
-				InitContainersToStart: []int{2},
-				ContainersToStart:     []int{},
-				ContainersToKill:      getKillMapWithInitContainers(basePod, baseStatus, []int{2}),
+				SandboxID:                baseStatus.SandboxStatuses[0].Id,
+				NextInitContainerToStart: &basePod.Spec.InitContainers[2],
+				InitContainersToStart:    []int{2},
+				ContainersToStart:        []int{},
+				ContainersToKill:         getKillMapWithInitContainers(basePod, baseStatus, []int{2}),
 			},
 		},
 		"init container state unknown; kill and recreate the last init container if RestartPolicy == OnFailure": {
@@ -1332,10 +1346,11 @@ func TestComputePodActionsWithInitContainers(t *testing.T) {
 				status.ContainerStatuses[2].State = kubecontainer.ContainerStateUnknown
 			},
 			actions: podActions{
-				SandboxID:             baseStatus.SandboxStatuses[0].Id,
-				InitContainersToStart: []int{2},
-				ContainersToStart:     []int{},
-				ContainersToKill:      getKillMapWithInitContainers(basePod, baseStatus, []int{2}),
+				SandboxID:                baseStatus.SandboxStatuses[0].Id,
+				NextInitContainerToStart: &basePod.Spec.InitContainers[2],
+				InitContainersToStart:    []int{2},
+				ContainersToStart:        []int{},
+				ContainersToKill:         getKillMapWithInitContainers(basePod, baseStatus, []int{2}),
 			},
 		},
 		"init container state unknown; kill pod if RestartPolicy == Never": {
@@ -1371,13 +1386,14 @@ func TestComputePodActionsWithInitContainers(t *testing.T) {
 				status.ContainerStatuses = []*kubecontainer.Status{}
 			},
 			actions: podActions{
-				KillPod:               true,
-				CreateSandbox:         true,
-				SandboxID:             baseStatus.SandboxStatuses[0].Id,
-				Attempt:               uint32(1),
-				InitContainersToStart: []int{0},
-				ContainersToStart:     []int{},
-				ContainersToKill:      getKillMapWithInitContainers(basePod, baseStatus, []int{}),
+				KillPod:                  true,
+				CreateSandbox:            true,
+				SandboxID:                baseStatus.SandboxStatuses[0].Id,
+				Attempt:                  uint32(1),
+				NextInitContainerToStart: &basePod.Spec.InitContainers[0],
+				InitContainersToStart:    []int{0},
+				ContainersToStart:        []int{},
+				ContainersToKill:         getKillMapWithInitContainers(basePod, baseStatus, []int{}),
 			},
 		},
 		"Pod sandbox not ready, init container failed, and RestartPolicy == OnFailure; create a new pod sandbox": {
@@ -1387,13 +1403,14 @@ func TestComputePodActionsWithInitContainers(t *testing.T) {
 				status.ContainerStatuses[2].ExitCode = 137
 			},
 			actions: podActions{
-				KillPod:               true,
-				CreateSandbox:         true,
-				SandboxID:             baseStatus.SandboxStatuses[0].Id,
-				Attempt:               uint32(1),
-				InitContainersToStart: []int{0},
-				ContainersToStart:     []int{},
-				ContainersToKill:      getKillMapWithInitContainers(basePod, baseStatus, []int{}),
+				KillPod:                  true,
+				CreateSandbox:            true,
+				SandboxID:                baseStatus.SandboxStatuses[0].Id,
+				Attempt:                  uint32(1),
+				NextInitContainerToStart: &basePod.Spec.InitContainers[0],
+				InitContainersToStart:    []int{0},
+				ContainersToStart:        []int{},
+				ContainersToKill:         getKillMapWithInitContainers(basePod, baseStatus, []int{}),
 			},
 		},
 		"some of the init container statuses are missing but the last init container is running, don't restart preceding ones": {
@@ -1419,6 +1436,15 @@ func TestComputePodActionsWithInitContainers(t *testing.T) {
 		}
 		ctx := context.Background()
 		actions := m.computePodActions(ctx, pod, status)
+		if !sidecarContainersEnabled {
+			// If sidecar containers are disabled, we should not see any
+			// InitContainersToStart in the actions.
+			test.actions.InitContainersToStart = nil
+		} else {
+			// If sidecar containers are enabled, we should not see any
+			// NextInitContainerToStart in the actions.
+			test.actions.NextInitContainerToStart = nil
+		}
 		verifyActions(t, &test.actions, &actions, desc)
 	}
 }
@@ -1865,6 +1891,16 @@ func TestComputePodActionsWithInitAndEphemeralContainers(t *testing.T) {
 	TestComputePodActions(t)
 	TestComputePodActionsWithInitContainers(t)
 
+	t.Run("sidecar containers disabled", func(t *testing.T) {
+		testComputePodActionsWithInitAndEphemeralContainers(t, false)
+	})
+	t.Run("sidecar containers enabled", func(t *testing.T) {
+		testComputePodActionsWithInitAndEphemeralContainers(t, true)
+	})
+}
+
+func testComputePodActionsWithInitAndEphemeralContainers(t *testing.T, sidecarContainersEnabled bool) {
+	defer featuregatetesting.SetFeatureGateDuringTest(t, utilfeature.DefaultFeatureGate, features.SidecarContainers, sidecarContainersEnabled)()
 	_, _, m, err := createTestRuntimeManager()
 	require.NoError(t, err)
 
@@ -1941,13 +1977,14 @@ func TestComputePodActionsWithInitAndEphemeralContainers(t *testing.T) {
 				status.ContainerStatuses[0].ExitCode = 137
 			},
 			actions: podActions{
-				KillPod:               true,
-				CreateSandbox:         true,
-				SandboxID:             baseStatus.SandboxStatuses[0].Id,
-				Attempt:               uint32(1),
-				InitContainersToStart: []int{0},
-				ContainersToStart:     []int{},
-				ContainersToKill:      getKillMapWithInitContainers(basePod, baseStatus, []int{}),
+				KillPod:                  true,
+				CreateSandbox:            true,
+				SandboxID:                baseStatus.SandboxStatuses[0].Id,
+				Attempt:                  uint32(1),
+				NextInitContainerToStart: &basePod.Spec.InitContainers[0],
+				InitContainersToStart:    []int{0},
+				ContainersToStart:        []int{},
+				ContainersToKill:         getKillMapWithInitContainers(basePod, baseStatus, []int{}),
 			},
 		},
 		"Kill pod and do not restart ephemeral container if the pod sandbox is dead": {
@@ -1956,13 +1993,14 @@ func TestComputePodActionsWithInitAndEphemeralContainers(t *testing.T) {
 				status.SandboxStatuses[0].State = runtimeapi.PodSandboxState_SANDBOX_NOTREADY
 			},
 			actions: podActions{
-				KillPod:               true,
-				CreateSandbox:         true,
-				SandboxID:             baseStatus.SandboxStatuses[0].Id,
-				Attempt:               uint32(1),
-				InitContainersToStart: []int{0},
-				ContainersToStart:     []int{},
-				ContainersToKill:      getKillMapWithInitContainers(basePod, baseStatus, []int{}),
+				KillPod:                  true,
+				CreateSandbox:            true,
+				SandboxID:                baseStatus.SandboxStatuses[0].Id,
+				Attempt:                  uint32(1),
+				NextInitContainerToStart: &basePod.Spec.InitContainers[0],
+				InitContainersToStart:    []int{0},
+				ContainersToStart:        []int{},
+				ContainersToKill:         getKillMapWithInitContainers(basePod, baseStatus, []int{}),
 			},
 		},
 		"Kill pod if all containers exited except ephemeral container": {
@@ -2001,6 +2039,15 @@ func TestComputePodActionsWithInitAndEphemeralContainers(t *testing.T) {
 		}
 		ctx := context.Background()
 		actions := m.computePodActions(ctx, pod, status)
+		if !sidecarContainersEnabled {
+			// If sidecar containers are disabled, we should not see any
+			// InitContainersToStart in the actions.
+			test.actions.InitContainersToStart = nil
+		} else {
+			// If sidecar containers are enabled, we should not see any
+			// NextInitContainerToStart in the actions.
+			test.actions.NextInitContainerToStart = nil
+		}
 		verifyActions(t, &test.actions, &actions, desc)
 	}
 }
@@ -2418,10 +2465,6 @@ func TestComputePodActionsForPodResize(t *testing.T) {
 }
 
 func TestUpdatePodContainerResources(t *testing.T) {
-	// TODO: remove this check on this PR merges: https://github.com/kubernetes/kubernetes/pull/112599
-	if goruntime.GOOS == "windows" {
-		t.Skip("Updating Pod Container Resources is not supported on Windows.")
-	}
 	defer featuregatetesting.SetFeatureGateDuringTest(t, utilfeature.DefaultFeatureGate, features.InPlacePodVerticalScaling, true)()
 	fakeRuntime, _, m, err := createTestRuntimeManager()
 	m.machineInfo.MemoryCapacity = 17179860387 // 16GB

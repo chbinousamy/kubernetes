@@ -24,6 +24,7 @@ import (
 
 	"github.com/spf13/pflag"
 
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 
@@ -513,7 +514,8 @@ func TestValidateInitConfiguration(t *testing.T) {
 						ServiceSubnet: "10.96.0.1/12",
 						DNSDomain:     "cluster.local",
 					},
-					CertificatesDir: "/some/cert/dir",
+					CertificatesDir:     "/some/cert/dir",
+					EncryptionAlgorithm: kubeadmapi.EncryptionAlgorithmRSA2048,
 				},
 				NodeRegistration: kubeadmapi.NodeRegistrationOptions{Name: nodename, CRISocket: criPath},
 			}, false},
@@ -528,7 +530,8 @@ func TestValidateInitConfiguration(t *testing.T) {
 						ServiceSubnet: "2001:db8::1/98",
 						DNSDomain:     "cluster.local",
 					},
-					CertificatesDir: "/some/cert/dir",
+					CertificatesDir:     "/some/cert/dir",
+					EncryptionAlgorithm: kubeadmapi.EncryptionAlgorithmRSA2048,
 				},
 				NodeRegistration: kubeadmapi.NodeRegistrationOptions{Name: nodename, CRISocket: criPath},
 			}, false},
@@ -543,7 +546,8 @@ func TestValidateInitConfiguration(t *testing.T) {
 						ServiceSubnet: "10.96.0.1/12",
 						DNSDomain:     "cluster.local",
 					},
-					CertificatesDir: "/some/other/cert/dir",
+					CertificatesDir:     "/some/other/cert/dir",
+					EncryptionAlgorithm: kubeadmapi.EncryptionAlgorithmRSA2048,
 				},
 			}, false},
 		{"valid InitConfiguration with incorrect IPv4 pod subnet",
@@ -558,7 +562,8 @@ func TestValidateInitConfiguration(t *testing.T) {
 						DNSDomain:     "cluster.local",
 						PodSubnet:     "10.0.1.15",
 					},
-					CertificatesDir: "/some/other/cert/dir",
+					CertificatesDir:     "/some/other/cert/dir",
+					EncryptionAlgorithm: kubeadmapi.EncryptionAlgorithmRSA2048,
 				},
 				NodeRegistration: kubeadmapi.NodeRegistrationOptions{Name: nodename, CRISocket: criPath},
 			}, false},
@@ -580,7 +585,8 @@ func TestValidateInitConfiguration(t *testing.T) {
 						DNSDomain:     "cluster.local",
 						PodSubnet:     "10.0.1.15/16",
 					},
-					CertificatesDir: "/some/other/cert/dir",
+					CertificatesDir:     "/some/other/cert/dir",
+					EncryptionAlgorithm: kubeadmapi.EncryptionAlgorithmRSA2048,
 				},
 				NodeRegistration: kubeadmapi.NodeRegistrationOptions{Name: nodename, CRISocket: criPath},
 			}, true},
@@ -601,7 +607,8 @@ func TestValidateInitConfiguration(t *testing.T) {
 						ServiceSubnet: "2001:db8::1/112",
 						DNSDomain:     "cluster.local",
 					},
-					CertificatesDir: "/some/other/cert/dir",
+					CertificatesDir:     "/some/other/cert/dir",
+					EncryptionAlgorithm: kubeadmapi.EncryptionAlgorithmECDSAP256,
 				},
 				NodeRegistration: kubeadmapi.NodeRegistrationOptions{Name: nodename, CRISocket: criPath},
 			}, true},
@@ -737,11 +744,14 @@ func TestValidateMixedArguments(t *testing.T) {
 		{[]string{"--foo=bar"}, true},
 		{[]string{"--config=hello"}, true},
 		{[]string{"--config=hello", "--ignore-preflight-errors=all"}, true},
+		// Expected to succeed, --config is mixed with skip-* flags only or no other flags
 		{[]string{"--config=hello", "--skip-token-print=true"}, true},
 		{[]string{"--config=hello", "--ignore-preflight-errors=baz", "--skip-token-print"}, true},
 		// Expected to fail, --config is mixed with the --foo flag
 		{[]string{"--config=hello", "--ignore-preflight-errors=baz", "--foo=bar"}, false},
 		{[]string{"--config=hello", "--foo=bar"}, false},
+		// Expected to fail, --config is mixed with the upgrade related flag
+		{[]string{"--config=hello", "--allow-experimental-upgrades"}, false},
 	}
 
 	var cfgPath string
@@ -753,6 +763,7 @@ func TestValidateMixedArguments(t *testing.T) {
 		}
 		f.String("foo", "", "flag bound to config object")
 		f.StringSliceVar(&ignorePreflightErrors, "ignore-preflight-errors", ignorePreflightErrors, "flag not bound to config object")
+		f.Bool("allow-experimental-upgrades", true, "upgrade flags for plan and apply command")
 		f.Bool("skip-token-print", false, "flag not bound to config object")
 		f.StringVar(&cfgPath, "config", cfgPath, "Path to kubeadm config file")
 		if err := f.Parse(rt.args); err != nil {
@@ -1187,6 +1198,28 @@ func TestValidateEtcd(t *testing.T) {
 	}
 }
 
+func TestValidateEncryptionAlgorithm(t *testing.T) {
+	var tests = []struct {
+		name           string
+		algo           kubeadmapi.EncryptionAlgorithmType
+		expectedErrors bool
+	}{
+		{name: "valid RSA-2048", algo: kubeadmapi.EncryptionAlgorithmRSA2048, expectedErrors: false},
+		{name: "valid RSA-3072", algo: kubeadmapi.EncryptionAlgorithmRSA3072, expectedErrors: false},
+		{name: "valid RSA-4096", algo: kubeadmapi.EncryptionAlgorithmRSA4096, expectedErrors: false},
+		{name: "valid ECDSA-P256", algo: kubeadmapi.EncryptionAlgorithmECDSAP256, expectedErrors: false},
+		{name: "invalid algorithm", algo: "foo", expectedErrors: true},
+		{name: "empty algorithm returns an error", algo: "", expectedErrors: true},
+	}
+	for _, tc := range tests {
+		actual := ValidateEncryptionAlgorithm(tc.algo, field.NewPath("encryptionAlgorithm"))
+		actualErrors := len(actual) > 0
+		if actualErrors != tc.expectedErrors {
+			t.Errorf("error: validate public key algorithm: %q\n\texpected: %t\n\t  actual: %t", tc.algo, tc.expectedErrors, actualErrors)
+		}
+	}
+}
+
 func TestGetClusterNodeMask(t *testing.T) {
 	tests := []struct {
 		name          string
@@ -1433,6 +1466,76 @@ func TestValidateExtraArgs(t *testing.T) {
 
 	for _, tc := range tests {
 		actual := ValidateExtraArgs(tc.args, nil)
+		if len(actual) != tc.expectedErrors {
+			t.Errorf("case %q:\n\t expected errors: %v\n\t got: %v\n\t errors: %v", tc.name, tc.expectedErrors, len(actual), actual)
+		}
+	}
+}
+
+func TestValidateUnmountFlags(t *testing.T) {
+	var tests = []struct {
+		name           string
+		flags          []string
+		expectedErrors int
+	}{
+		{
+			name:           "nil input",
+			flags:          nil,
+			expectedErrors: 0,
+		},
+		{
+			name: "all valid flags",
+			flags: []string{
+				kubeadmapi.UnmountFlagMNTForce,
+				kubeadmapi.UnmountFlagMNTDetach,
+				kubeadmapi.UnmountFlagMNTExpire,
+				kubeadmapi.UnmountFlagUmountNoFollow,
+			},
+			expectedErrors: 0,
+		},
+		{
+			name: "invalid two flags",
+			flags: []string{
+				"foo",
+				"bar",
+			},
+			expectedErrors: 2,
+		},
+	}
+
+	for _, tc := range tests {
+		actual := ValidateUnmountFlags(tc.flags, nil)
+		if len(actual) != tc.expectedErrors {
+			t.Errorf("case %q:\n\t expected errors: %v\n\t got: %v\n\t errors: %v", tc.name, tc.expectedErrors, len(actual), actual)
+		}
+	}
+}
+
+func TestPullPolicy(t *testing.T) {
+	var tests = []struct {
+		name           string
+		policy         string
+		expectedErrors int
+	}{
+		{
+			name:           "empty policy causes no errors", // gets defaulted
+			policy:         "",
+			expectedErrors: 0,
+		},
+		{
+			name:           "invalid policy",
+			policy:         "foo",
+			expectedErrors: 1,
+		},
+		{
+			name:           "valid policy",
+			policy:         "IfNotPresent",
+			expectedErrors: 0,
+		},
+	}
+
+	for _, tc := range tests {
+		actual := ValidateImagePullPolicy(corev1.PullPolicy(tc.policy), nil)
 		if len(actual) != tc.expectedErrors {
 			t.Errorf("case %q:\n\t expected errors: %v\n\t got: %v\n\t errors: %v", tc.name, tc.expectedErrors, len(actual), actual)
 		}

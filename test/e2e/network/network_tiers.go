@@ -1,3 +1,6 @@
+//go:build !providerless
+// +build !providerless
+
 /*
 Copyright 2017 The Kubernetes Authors.
 
@@ -41,7 +44,7 @@ import (
 	"github.com/onsi/gomega"
 )
 
-var _ = common.SIGDescribe("Services GCE [Slow]", func() {
+var _ = common.SIGDescribe("Services GCE", framework.WithSlow(), func() {
 	f := framework.NewDefaultFramework("services")
 	f.NamespacePodSecurityLevel = admissionapi.LevelPrivileged
 
@@ -65,7 +68,7 @@ var _ = common.SIGDescribe("Services GCE [Slow]", func() {
 		//reset serviceLBNames
 		serviceLBNames = []string{}
 	})
-	ginkgo.It("should be able to create and tear down a standard-tier load balancer [Slow]", func(ctx context.Context) {
+	f.It("should be able to create and tear down a standard-tier load balancer", f.WithSlow(), func(ctx context.Context) {
 		lagTimeout := e2eservice.LoadBalancerLagTimeoutDefault
 		createTimeout := e2eservice.GetServiceLoadBalancerCreationTimeout(ctx, cs)
 
